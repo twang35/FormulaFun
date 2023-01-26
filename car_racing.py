@@ -63,10 +63,10 @@ class FrictionDetector(contactListener):
         self.env = env
         self.lap_complete_percent = lap_complete_percent
 
-    def BeginContact(self, contact):
+    def begin_contact(self, contact):
         self._contact(contact, True)
 
-    def EndContact(self, contact):
+    def end_contact(self, contact):
         self._contact(contact, False)
 
     def _contact(self, contact, begin):
@@ -136,7 +136,7 @@ class CarRacing(gym.Env, EzPickle):
 
     ## Observation Space
 
-    A top-down 96x96 RGB image of the car and race track.
+    A top-down 96x96 RGB image of the car and racetrack.
 
     ## Rewards
     The reward is -0.1 every frame and +1000/N for every track tile visited,
@@ -164,7 +164,8 @@ class CarRacing(gym.Env, EzPickle):
 
     ## Reset Arguments
     Passing the option `options["randomize"] = True` will change the current colour of the environment on demand.
-    Correspondingly, passing the option `options["randomize"] = False` will not change the current colour of the environment.
+    Correspondingly, passing the option `options["randomize"] = False` will not change the current colour of the
+    environment.
     `domain_randomize` must be `True` on init for this argument to work.
     Example usage:
     ```python
@@ -221,6 +222,11 @@ class CarRacing(gym.Env, EzPickle):
         self.domain_randomize = domain_randomize
         self.lap_complete_percent = lap_complete_percent
         self._init_colors()
+
+        self.tile_visited_count = 0
+        self.t = 0.0
+        self.road_poly = []
+        self.CHECKPOINTS = 12
 
         self.contactListener_keepref = FrictionDetector(self, self.lap_complete_percent)
         self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
@@ -298,21 +304,20 @@ class CarRacing(gym.Env, EzPickle):
             self.grass_color[idx] += 20
 
     def _create_track(self):
-        CHECKPOINTS = 12
 
         # Create checkpoints
         checkpoints = []
-        for c in range(CHECKPOINTS):
-            noise = self.np_random.uniform(0, 2 * math.pi * 1 / CHECKPOINTS)
-            alpha = 2 * math.pi * c / CHECKPOINTS + noise
+        for c in range(self.CHECKPOINTS):
+            noise = self.np_random.uniform(0, 2 * math.pi * 1 / self.CHECKPOINTS)
+            alpha = 2 * math.pi * c / self.CHECKPOINTS + noise
             rad = self.np_random.uniform(TRACK_RAD / 3, TRACK_RAD)
 
             if c == 0:
                 alpha = 0
                 rad = 1.5 * TRACK_RAD
-            if c == CHECKPOINTS - 1:
-                alpha = 2 * math.pi * c / CHECKPOINTS
-                self.start_alpha = 2 * math.pi * (-0.5) / CHECKPOINTS
+            if c == self.CHECKPOINTS - 1:
+                alpha = 2 * math.pi * c / self.CHECKPOINTS
+                self.start_alpha = 2 * math.pi * (-0.5) / self.CHECKPOINTS
                 rad = 1.5 * TRACK_RAD
 
             checkpoints.append((alpha, rad * math.cos(alpha), rad * math.sin(alpha)))
@@ -386,9 +391,7 @@ class CarRacing(gym.Env, EzPickle):
             i -= 1
             if i == 0:
                 return False  # Failed
-            pass_through_start = (
-                track[i][0] > self.start_alpha and track[i - 1][0] <= self.start_alpha
-            )
+            pass_through_start = (track[i][0] > self.start_alpha >= track[i - 1][0])
             if pass_through_start and i2 == -1:
                 i2 = i
             elif pass_through_start and i1 == -1:
@@ -399,7 +402,7 @@ class CarRacing(gym.Env, EzPickle):
         assert i1 != -1
         assert i2 != -1
 
-        track = track[i1 : i2 - 1]
+        track = track[i1: i2 - 1]
 
         first_beta = track[0][1]
         first_perp_x = math.cos(first_beta)
@@ -527,7 +530,7 @@ class CarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human":
             self.render()
-        return self.step(None)[0], {}
+        return self.step(np.array(0))[0], {}
 
     def step(self, action: Union[np.ndarray, int]):
         assert self.car is not None

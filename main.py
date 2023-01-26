@@ -9,5 +9,3 @@ for i in range(300):
     action = np.array([0, +1.0, 0])
     game.step(action)
     game.render()
-
-
