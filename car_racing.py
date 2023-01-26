@@ -63,10 +63,10 @@ class FrictionDetector(contactListener):
         self.env = env
         self.lap_complete_percent = lap_complete_percent
 
-    def begin_contact(self, contact):
+    def BeginContact(self, contact):
         self._contact(contact, True)
 
-    def end_contact(self, contact):
+    def EndContact(self, contact):
         self._contact(contact, False)
 
     def _contact(self, contact, begin):
@@ -223,11 +223,6 @@ class CarRacing(gym.Env, EzPickle):
         self.lap_complete_percent = lap_complete_percent
         self._init_colors()
 
-        self.tile_visited_count = 0
-        self.t = 0.0
-        self.road_poly = []
-        self.CHECKPOINTS = 12
-
         self.contactListener_keepref = FrictionDetector(self, self.lap_complete_percent)
         self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
         self.screen: Optional[pygame.Surface] = None
@@ -304,20 +299,21 @@ class CarRacing(gym.Env, EzPickle):
             self.grass_color[idx] += 20
 
     def _create_track(self):
+        CHECKPOINTS = 12
 
         # Create checkpoints
         checkpoints = []
-        for c in range(self.CHECKPOINTS):
-            noise = self.np_random.uniform(0, 2 * math.pi * 1 / self.CHECKPOINTS)
-            alpha = 2 * math.pi * c / self.CHECKPOINTS + noise
+        for c in range(CHECKPOINTS):
+            noise = self.np_random.uniform(0, 2 * math.pi * 1 / CHECKPOINTS)
+            alpha = 2 * math.pi * c / CHECKPOINTS + noise
             rad = self.np_random.uniform(TRACK_RAD / 3, TRACK_RAD)
 
             if c == 0:
                 alpha = 0
                 rad = 1.5 * TRACK_RAD
-            if c == self.CHECKPOINTS - 1:
-                alpha = 2 * math.pi * c / self.CHECKPOINTS
-                self.start_alpha = 2 * math.pi * (-0.5) / self.CHECKPOINTS
+            if c == CHECKPOINTS - 1:
+                alpha = 2 * math.pi * c / CHECKPOINTS
+                self.start_alpha = 2 * math.pi * (-0.5) / CHECKPOINTS
                 rad = 1.5 * TRACK_RAD
 
             checkpoints.append((alpha, rad * math.cos(alpha), rad * math.sin(alpha)))
@@ -391,7 +387,9 @@ class CarRacing(gym.Env, EzPickle):
             i -= 1
             if i == 0:
                 return False  # Failed
-            pass_through_start = (track[i][0] > self.start_alpha >= track[i - 1][0])
+            pass_through_start = (
+                track[i][0] > self.start_alpha and track[i - 1][0] <= self.start_alpha
+            )
             if pass_through_start and i2 == -1:
                 i2 = i
             elif pass_through_start and i1 == -1:
@@ -402,7 +400,7 @@ class CarRacing(gym.Env, EzPickle):
         assert i1 != -1
         assert i2 != -1
 
-        track = track[i1: i2 - 1]
+        track = track[i1 : i2 - 1]
 
         first_beta = track[0][1]
         first_perp_x = math.cos(first_beta)
@@ -530,7 +528,7 @@ class CarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human":
             self.render()
-        return self.step(np.array(0))[0], {}
+        return self.step(None)[0], {}
 
     def step(self, action: Union[np.ndarray, int]):
         assert self.car is not None
