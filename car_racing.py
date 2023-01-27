@@ -105,6 +105,27 @@ class FrictionDetector(contactListener):
             obj.tiles.remove(tile)
 
 
+class LineSegment:
+    # line is in form: Ax + By = C
+    def __init__(self, A, B, C, start_x, start_y, end_x, end_y):
+        self.A = A
+        self.B = B
+        self.C = C
+        self.start_x = start_x
+        self.start_y = start_y
+        self.end_x = end_x
+        self.end_y = end_y
+
+    def within_segment(self, x, y):
+        return within_bounds(x, self.start_x, self.end_x) and within_bounds(y, self.start_y, self.end_y)
+
+
+def within_bounds(target, first, second):
+    if first > second:
+        return first >= target >= second
+    return first <= target <= second
+
+
 class CarRacing(gym.Env, EzPickle):
     """
     ## Description
@@ -551,6 +572,10 @@ class CarRacing(gym.Env, EzPickle):
         self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
         self.t += 1.0 / FPS
 
+        # self.car.hull.angle is pointing to the right of the car. Add pi/2 to point straight.
+        forward_car_angle = self.car.hull.angle + 1.5708
+        forward_distance = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
+
         self.state = self._render("state_pixels")
 
         step_reward = 0
@@ -558,9 +583,6 @@ class CarRacing(gym.Env, EzPickle):
         truncated = False
         if action is not None:  # First step without action, called from reset()
             self.reward -= 0.1
-            # We actually don't want to count fuel spent, we want car to be faster.
-            # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
-            self.car.fuel_spent = 0.0
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
             if self.tile_visited_count == len(self.track) or self.new_lap:
@@ -576,6 +598,127 @@ class CarRacing(gym.Env, EzPickle):
         if self.render_mode == "human":
             self.render()
         return self.state, step_reward, terminated, truncated, {}
+
+    def calc_angle_distances(self, start_pos, start_angle, road_segments):
+        # get index of road segment that contains car
+        road_segment_index = self.get_location_of_car(start_pos, road_segments)
+
+        if road_segment_index is None:
+            return 0
+
+        straight_line = self.get_line_from_car(start_pos, start_angle)
+
+        total_distance = 0
+        # get distance from start_pos to edge of first segment in correct direction
+        segment_dist = self.get_first_segment_dist(straight_line, road_segments[road_segment_index])
+        road_segment_index += 1
+        no_intersection_count = 0
+
+        while no_intersection_count != 2:
+            if segment_dist == 0:
+                no_intersection_count += 1
+            else:
+                no_intersection_count = 0
+            total_distance += segment_dist
+            segment_dist = self.get_intersection_distance(straight_line,
+                                                          road_segments[road_segment_index % len(road_segments)])
+            road_segment_index += 1
+
+        print(total_distance)
+
+        return segment_dist
+
+    def get_location_of_car(self, start_pos, road_segments):
+        # enumerate road segments and find if start_pos lies within segment
+        for i, segment in enumerate(road_segments):
+            if self.within_road_segment(start_pos, segment):
+                return i
+
+        return None
+
+    def get_first_segment_dist(self, line_segment, road_segment):
+        intersection = None
+        # find first intersection
+        for i in range(len(road_segment[0])):
+            start = road_segment[0][i]
+            end = road_segment[0][(i+1) % len(road_segment[0])]
+            line = self.get_line(start[0], start[1], end[0], end[1])
+            intersection = self.get_intersection(line_segment, line)
+            if intersection:
+                break
+
+        # calc distance from start to intersection
+        return self.get_distance(line_segment.start_x, line_segment.start_y, intersection[0], intersection[1])
+
+    def get_intersection_distance(self, line_segment, road_segment):
+        intersections = []
+        # find first intersection
+        for i in range(len(road_segment[0])):
+            start = road_segment[0][i]
+            end = road_segment[0][(i+1) % len(road_segment[0])]
+            line = self.get_line(start[0], start[1], end[0], end[1])
+            intersection = self.get_intersection(line_segment, line)
+            if intersection:
+                intersections.append(intersection)
+
+        if len(intersections) == 2:
+            return self.get_distance(intersections[0][0], intersections[0][1], intersections[1][0], intersections[1][1])
+
+        return 0
+
+    @staticmethod
+    def get_distance(first_x, first_y, second_x, second_y):
+        return math.sqrt((first_x - second_x)**2 + (first_y - second_y)**2)
+
+    # magic from https://stackoverflow.com/questions/217578/how-can-i-determine-whether-a-2d-point-is-within-a-polygon
+    @staticmethod
+    def within_road_segment(start_pos, segment):
+        i = 0
+        j = 3
+        within = False
+        vertices = segment[0]
+
+        # there are 4 vertices to check
+        while i < 4:
+            if ((vertices[i][1] > start_pos.y) != (vertices[j][1] > start_pos.y)) \
+                    and (start_pos.x < ((vertices[j][0] - vertices[i][0]) * (start_pos.y - vertices[i][1])
+                                        / (vertices[j][1] - vertices[i][1])
+                                        + vertices[i][0])):
+                within = not within
+            j = i
+            i += 1
+        return within
+
+    def get_line_from_car(self, start_pos, angle):
+        # get endpoint with (r * cos(a), r * sin(a))
+        # just make endpoint very far away
+        magnitude = 500
+        end_x = start_pos.x + magnitude * math.cos(angle)
+        end_y = start_pos.y + magnitude * math.sin(angle)
+
+        return self.get_line(start_pos.x, start_pos.y, end_x, end_y)
+
+    @staticmethod
+    def get_line(start_x, start_y, end_x, end_y):
+        # calculate Ax + By = C
+        A = end_y - start_y
+        B = start_x - end_x
+        C = A * start_x + B * start_y
+
+        return LineSegment(A, B, C, start_x, start_y, end_x, end_y)
+
+    @staticmethod
+    def get_intersection(first, second):
+        determinant = first.A * second.B - second.A * first.B
+        if determinant == 0:
+            # lines are parallel
+            return None
+        x = (second.B * first.C - first.B * second.C) / determinant
+        y = (first.A * second.C - second.A * first.C) / determinant
+
+        if first.within_segment(x, y) and second.within_segment(x, y):
+            return x, y
+        return None
 
     def render(self):
         if self.render_mode is None:
