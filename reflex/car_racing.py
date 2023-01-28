@@ -7,7 +7,7 @@ import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-from car_dynamics import Car
+from reflex.car_dynamics import Car
 from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 
@@ -616,8 +616,6 @@ class CarRacing(gym.Env, EzPickle):
             cur_line = self.get_line_from_car(start_pos, forward_rad + rad)
             distance = self.get_distance_to_grass(cur_line, road_segment_index, road_segments)
             angle_distances.append((angle, distance))
-
-        print(angle_distances)
 
         return angle_distances
 
