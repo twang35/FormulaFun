@@ -574,7 +574,7 @@ class CarRacing(gym.Env, EzPickle):
 
         # self.car.hull.angle is pointing to the right of the car. Add pi/2 to point straight.
         forward_car_angle = self.car.hull.angle + 1.5708
-        forward_distance = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
+        angle_distances = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
 
         self.state = self._render("state_pixels")
 
@@ -597,36 +597,29 @@ class CarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human":
             self.render()
-        return self.state, step_reward, terminated, truncated, {}
+        return self.state, step_reward, terminated, truncated, {'angle_distances': angle_distances}
 
-    def calc_angle_distances(self, start_pos, start_angle, road_segments):
+    def calc_angle_distances(self, start_pos, forward_rad, road_segments):
         # get index of road segment that contains car
         road_segment_index = self.get_location_of_car(start_pos, road_segments)
 
         if road_segment_index is None:
             return 0
 
-        straight_line = self.get_line_from_car(start_pos, start_angle)
+        # (angle, rad) tuples
+        angles = [(-105, 1.8326), (-90, 1.5708), (-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0),
+                  (5, -0.08727), (15, -0.2618), (45, -0.7854), (90, -1.5708), (105, 1.8326)]
+        angle_distances = []
 
-        total_distance = 0
-        # get distance from start_pos to edge of first segment in correct direction
-        segment_dist = self.get_first_segment_dist(straight_line, road_segments[road_segment_index])
-        road_segment_index += 1
-        no_intersection_count = 0
+        # for each angle, create line
+        for angle, rad in angles:
+            cur_line = self.get_line_from_car(start_pos, forward_rad + rad)
+            distance = self.get_distance_to_grass(cur_line, road_segment_index, road_segments)
+            angle_distances.append((angle, distance))
 
-        while no_intersection_count != 2:
-            if segment_dist == 0:
-                no_intersection_count += 1
-            else:
-                no_intersection_count = 0
-            total_distance += segment_dist
-            segment_dist = self.get_intersection_distance(straight_line,
-                                                          road_segments[road_segment_index % len(road_segments)])
-            road_segment_index += 1
+        print(angle_distances)
 
-        print(total_distance)
-
-        return segment_dist
+        return angle_distances
 
     def get_location_of_car(self, start_pos, road_segments):
         # enumerate road segments and find if start_pos lies within segment
@@ -649,6 +642,41 @@ class CarRacing(gym.Env, EzPickle):
 
         # calc distance from start to intersection
         return self.get_distance(line_segment.start_x, line_segment.start_y, intersection[0], intersection[1])
+
+    def get_distance_to_grass(self, line, road_segment_index, road_segments):
+        # adding len to keep road_segment_index from going negative
+        road_segment_index += len(road_segments)
+        # loop through forwards then backwards because some angles might point slightly backwards.
+        # looking backwards might not be necessary
+        forward_direction = [True, False]
+        forward_and_back_distances = []
+
+        for going_forward in forward_direction:
+            # get distance from start_pos to edge of first segment in correct direction
+            segment_dist = self.get_first_segment_dist(line, road_segments[road_segment_index % len(road_segments)])
+            total_distance = 0
+            current_road_index = road_segment_index
+            no_intersection_count = 0
+            # road segments also include the curbs on the side of turns
+            # no_interaction_count lets the algo skip over the curbs when calculating distance
+            while no_intersection_count != 2:
+                current_road_index += 1 if going_forward else -1
+                if segment_dist == 0:
+                    no_intersection_count += 1
+                else:
+                    no_intersection_count = 0
+                total_distance += segment_dist
+
+                # backwards distance is limited to not incentivize driving backwards
+                if not going_forward and total_distance > 30:
+                    break
+
+                # get next segment dist
+                segment_dist = self.get_intersection_distance(line,
+                                                              road_segments[current_road_index % len(road_segments)])
+            forward_and_back_distances.append(total_distance)
+
+        return max(forward_and_back_distances)
 
     def get_intersection_distance(self, line_segment, road_segment):
         intersections = []
@@ -968,7 +996,7 @@ if __name__ == "__main__":
 
     quit = False
     while not quit:
-        env.reset()
+        env.reset(seed=123)
         total_reward = 0.0
         steps = 0
         restart = False
