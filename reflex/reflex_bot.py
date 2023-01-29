@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 
 from reflex.car_racing import CarRacing
@@ -5,8 +7,11 @@ from reflex.car_racing import CarRacing
 
 def run_reflex_bot():
     game = CarRacing(render_mode="human")
-    game.reset(seed=123)
-    # game.reset()
+    seed = 123
+    # seed = random.randint(1, 100000)
+    # seed = 12147  # first corner sharp high speed
+    print(f'seed: {seed}')
+    game.reset(seed=seed)
 
     action = np.array([0, +1.0, 0])
     state, step_reward, terminated, truncated, info = game.step(action)
@@ -30,8 +35,9 @@ def run_reflex_bot():
 # distances angles are +-105, 90, 45, 15, 5, 0
 def get_next_action(distances, car):
     braking_point_corner_distance = 40
-    max_turning_speed = 60
-    narrow_distance_buffer = 10
+    max_turning_speed = 70  # 60, 906.79; 65, 907.69; 70, 908.29
+    sharp_turn_speed = 55  # 55, 908.29
+    narrow_distance_buffer = 25
     medium_distance_buffer = 5
     sharp_distance_buffer = 5
 
@@ -43,7 +49,7 @@ def get_next_action(distances, car):
     print(speed)
     # brake for upcoming corner
     if speed > max_turning_speed and distances[0] <= braking_point_corner_distance:
-        return np.array([0, 0, 0.7])
+        return np.array([0, 0, 0.5])
 
     narrow_dist = max(distances[-5], distances[0], distances[5])
     medium_dist = max(distances[-15], distances[15]) - medium_distance_buffer
@@ -51,15 +57,18 @@ def get_next_action(distances, car):
 
     # sharp turn
     if sharp_dist > narrow_dist and sharp_dist > medium_dist:
+        braking = 0
+        if speed > sharp_turn_speed:
+            braking = 0.3
         if distances[-45] > distances[45]:
-            return np.array([-1, 0, 0])
-        return np.array([1, 0, 0])
+            return np.array([-1, 0, braking])
+        return np.array([1, 0, braking])
 
     # medium turn
     if medium_dist > narrow_dist:
         if distances[-15] > distances[15]:
-            return np.array([-0.1, 0.3, 0])
-        return np.array([0.1, 0.3, 0])
+            return np.array([-0.15, 1, 0])  # .5, 905.89; .6, 905.69; .7, 906.49; .8, 906.39; .9, 905.19; 1, 906.79
+        return np.array([0.15, 1, 0])
 
     # go mostly straight with accel
     acceleration = 1
