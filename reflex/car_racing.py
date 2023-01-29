@@ -597,25 +597,26 @@ class CarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human":
             self.render()
-        return self.state, step_reward, terminated, truncated, {'angle_distances': angle_distances}
+        action_info = {'angle_distances': angle_distances, 'car': self.car}
+        return self.state, step_reward, terminated, truncated, action_info
 
     def calc_angle_distances(self, start_pos, forward_rad, road_segments):
         # get index of road segment that contains car
         road_segment_index = self.get_location_of_car(start_pos, road_segments)
+        angle_distances = {}
 
         if road_segment_index is None:
-            return 0
+            return angle_distances
 
         # (angle, rad) tuples
         angles = [(-105, 1.8326), (-90, 1.5708), (-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0),
                   (5, -0.08727), (15, -0.2618), (45, -0.7854), (90, -1.5708), (105, 1.8326)]
-        angle_distances = []
 
         # for each angle, create line
         for angle, rad in angles:
             cur_line = self.get_line_from_car(start_pos, forward_rad + rad)
             distance = self.get_distance_to_grass(cur_line, road_segment_index, road_segments)
-            angle_distances.append((angle, distance))
+            angle_distances[angle] = distance
 
         return angle_distances
 
@@ -654,15 +655,14 @@ class CarRacing(gym.Env, EzPickle):
             segment_dist = self.get_first_segment_dist(line, road_segments[road_segment_index % len(road_segments)])
             total_distance = 0
             current_road_index = road_segment_index
-            no_intersection_count = 0
             # road segments also include the curbs on the side of turns
             # no_interaction_count lets the algo skip over the curbs when calculating distance
-            while no_intersection_count != 2:
+            while segment_dist != 0:
+                # get next index of road segment
                 current_road_index += 1 if going_forward else -1
-                if segment_dist == 0:
-                    no_intersection_count += 1
-                else:
-                    no_intersection_count = 0
+                if self.is_curb(road_segments[current_road_index % len(road_segments)]):
+                    current_road_index += 1 if going_forward else -1
+
                 total_distance += segment_dist
 
                 # backwards distance is limited to not incentivize driving backwards
@@ -675,6 +675,16 @@ class CarRacing(gym.Env, EzPickle):
             forward_and_back_distances.append(total_distance)
 
         return max(forward_and_back_distances)
+
+    @staticmethod
+    def is_curb(segment):
+        # is curb if longest side is less than 5
+        return max(
+            math.fabs(max(segment[0][0][0], segment[0][1][0], segment[0][2][0], segment[0][3][0])
+                      - min(segment[0][0][0], segment[0][1][0], segment[0][2][0], segment[0][3][0])),
+            math.fabs(max(segment[0][0][1], segment[0][1][1], segment[0][2][1], segment[0][3][1])
+                      - min(segment[0][0][1], segment[0][1][1], segment[0][2][1], segment[0][3][1]))) \
+            < 5
 
     def get_intersection_distance(self, line_segment, road_segment):
         intersections = []
