@@ -219,6 +219,7 @@ class CarRacing(gym.Env, EzPickle):
             "human",
             "rgb_array",
             "state_pixels",
+            "none",
         ],
         "render_fps": FPS,
     }
@@ -576,7 +577,7 @@ class CarRacing(gym.Env, EzPickle):
         forward_car_angle = self.car.hull.angle + 1.5708
         angle_distances = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
 
-        self.state = self._render("state_pixels")
+        self.state = self._render(self.render_mode)
 
         step_reward = 0
         terminated = False
@@ -825,6 +826,8 @@ class CarRacing(gym.Env, EzPickle):
             return self._create_image_array(self.surf, (VIDEO_W, VIDEO_H))
         elif mode == "state_pixels":
             return self._create_image_array(self.surf, (STATE_W, STATE_H))
+        elif mode == "none":
+            return None
         else:
             return self.isopen
 
