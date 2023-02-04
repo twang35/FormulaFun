@@ -577,7 +577,8 @@ class CarRacing(gym.Env, EzPickle):
         forward_car_angle = self.car.hull.angle + 1.5708
         angle_distances = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
 
-        self.state = self._render(self.render_mode)
+        # not using state
+        self.state = self._render("none")
 
         step_reward = 0
         terminated = False

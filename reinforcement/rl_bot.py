@@ -7,7 +7,7 @@ from reinforcement.car_racing import CarRacing
 
 def run_rl_bot():
     start = time.time()
-    game = CarRacing(render_mode="rgb_array")  # human: 18.1s, rgb_array: 9.4, state_pixels: 7.8, none: 6.8
+    game = CarRacing(render_mode="human")  # human: 18.1s, rgb_array: 9.4, state_pixels: 7.8, none: 6.8
     seed = 123
     # seed = random.randint(1, 100000)
     # seed = 12147  # first corner sharp high speed
