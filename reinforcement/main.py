@@ -1,7 +1,6 @@
 import numpy as np
 import pygame
-import reflex.car_racing as car_racing
-from reflex.reflex_bot import get_speed
+import car_racing
 
 if __name__ == "__main__":
     a = np.array([0.0, 0.0, 0.0])
@@ -36,7 +35,7 @@ if __name__ == "__main__":
             if event.type == pygame.QUIT:
                 quit = True
 
-    env = car_racing.CarRacing(render_mode="human")
+    env = car_racing.CarRacing(render_mode="human", continuous=True)
 
     quit = False
     while not quit:

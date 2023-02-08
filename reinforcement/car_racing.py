@@ -3,11 +3,12 @@ __credits__ = ["Andrea PIERRÉ"]
 import math
 from typing import Optional, Union
 
+from sklearn import preprocessing
 import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-from reinforcement.car_dynamics import Car
+from car_dynamics import Car
 from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 
@@ -55,6 +56,12 @@ GRASS_DIM = PLAYFIELD / 20.0
 MAX_SHAPE_DIM = (
     max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
 )
+
+MAX_BACKWARDS_DIST = 30
+MAX_FORWARDS_DIST = 200
+MAX_SCALAR_SPEED = 200
+CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD = 30
+# CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD = 3000000
 
 
 class FrictionDetector(contactListener):
@@ -127,93 +134,6 @@ def within_bounds(target, first, second):
 
 
 class CarRacing(gym.Env, EzPickle):
-    """
-    ## Description
-    The easiest control task to learn from pixels - a top-down
-    racing environment. The generated track is random every episode.
-
-    Some indicators are shown at the bottom of the window along with the
-    state RGB buffer. From left to right: true speed, four ABS sensors,
-    steering wheel position, and gyroscope.
-    To play yourself (it's rather fast for humans), type:
-    ```
-    python gymnasium/envs/box2d/car_racing.py
-    ```
-    Remember: it's a powerful rear-wheel drive car - don't press the accelerator
-    and turn at the same time.
-
-    ## Action Space
-    If continuous there are 3 actions :
-    - 0: steering, -1 is full left, +1 is full right
-    - 1: gas
-    - 2: breaking
-
-    If discrete there are 5 actions:
-    - 0: do nothing
-    - 1: steer left
-    - 2: steer right
-    - 3: gas
-    - 4: brake
-
-    ## Observation Space
-
-    A top-down 96x96 RGB image of the car and racetrack.
-
-    ## Rewards
-    The reward is -0.1 every frame and +1000/N for every track tile visited,
-    where N is the total number of tiles visited in the track. For example,
-    if you have finished in 732 frames, your reward is
-    1000 - 0.1*732 = 926.8 points.
-
-    ## Starting State
-    The car starts at rest in the center of the road.
-
-    ## Episode Termination
-    The episode finishes when all the tiles are visited. The car can also go
-    outside the playfield - that is, far off the track, in which case it will
-    receive -100 reward and die.
-
-    ## Arguments
-    `lap_complete_percent` dictates the percentage of tiles that must be visited by
-    the agent before a lap is considered complete.
-
-    Passing `domain_randomize=True` enables the domain randomized variant of the environment.
-    In this scenario, the background and track colours are different on every reset.
-
-    Passing `continuous=False` converts the environment to use discrete action space.
-    The discrete action space has 5 actions: [do nothing, left, right, gas, brake].
-
-    ## Reset Arguments
-    Passing the option `options["randomize"] = True` will change the current colour of the environment on demand.
-    Correspondingly, passing the option `options["randomize"] = False` will not change the current colour of the
-    environment.
-    `domain_randomize` must be `True` on init for this argument to work.
-    Example usage:
-    ```python
-    import gymnasium as gym
-    env = gym.make("CarRacing-v1", domain_randomize=True)
-
-    # normal reset, this changes the colour scheme by default
-    env.reset()
-
-    # reset with colour scheme change
-    env.reset(options={"randomize": True})
-
-    # reset with no colour scheme change
-    env.reset(options={"randomize": False})
-    ```
-
-    ## Version History
-    - v1: Change track completion logic and add domain randomization (0.24.0)
-    - v0: Original version
-
-    ## References
-    - Chris Campbell (2014), http://www.iforce2d.net/b2dtut/top-down-car.
-
-    ## Credits
-    Created by Oleg Klimov
-    """
-
     metadata = {
         "render_modes": [
             "human",
@@ -262,6 +182,11 @@ class CarRacing(gym.Env, EzPickle):
         self.fd_tile = fixtureDef(
             shape=polygonShape(vertices=[(0, 0), (1, 0), (1, -1), (0, -1)])
         )
+        self.dist_scaler = preprocessing.MinMaxScaler()
+        self.dist_scaler.fit(np.array([0, MAX_FORWARDS_DIST]).reshape(-1, 1))
+        self.speed_scaler = preprocessing.MinMaxScaler()
+        self.speed_scaler.fit(np.array([0, MAX_SCALAR_SPEED]).reshape(-1, 1))
+        self.consecutive_negative_rewards = 0
 
         # This will throw a warning in tests/envs/test_envs in utils/env_checker.py as the space is not symmetric
         #   or normalised however this is not possible here so ignore
@@ -524,6 +449,7 @@ class CarRacing(gym.Env, EzPickle):
         self.world.contactListener = self.world.contactListener_bug_workaround
         self.reward = 0.0
         self.prev_reward = 0.0
+        self.consecutive_negative_rewards = 0
         self.tile_visited_count = 0
         self.t = 0.0
         self.new_lap = False
@@ -550,7 +476,8 @@ class CarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human":
             self.render()
-        return self.step(None)[0], {}
+        zero_step = self.step(None if self.continuous else 0)
+        return zero_step[0], None
 
     def step(self, action: Union[np.ndarray, int]):
         assert self.car is not None
@@ -565,9 +492,9 @@ class CarRacing(gym.Env, EzPickle):
                         f"you passed the invalid action `{action}`. "
                         f"The supported action_space is `{self.action_space}`"
                     )
-                self.car.steer(-0.6 * (action == 1) + 0.6 * (action == 2))
-                self.car.gas(0.2 * (action == 3))
-                self.car.brake(0.8 * (action == 4))
+                self.car.steer(-1 * (action == 1) + 1 * (action == 2))
+                self.car.gas(action == 3)
+                self.car.brake(action == 4)
 
         self.car.step(1.0 / FPS)
         self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
@@ -577,16 +504,23 @@ class CarRacing(gym.Env, EzPickle):
         forward_car_angle = self.car.hull.angle + 1.5708
         angle_distances = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
 
-        # not using state
-        self.state = self._render("none")
-
         step_reward = 0
         terminated = False
         truncated = False
         if action is not None:  # First step without action, called from reset()
             self.reward -= 0.1
+            if angle_distances[0] == 0 and angle_distances[3] == 0:
+                self.reward -= 0.4
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
+
+            if step_reward < 0:
+                self.consecutive_negative_rewards += 1
+            else:
+                self.consecutive_negative_rewards = 0
+            if self.consecutive_negative_rewards > CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD:
+                terminated = True
+
             if self.tile_visited_count == len(self.track) or self.new_lap:
                 # Truncation due to finishing lap
                 # This should not be treated as a failure
@@ -596,29 +530,37 @@ class CarRacing(gym.Env, EzPickle):
             if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                 terminated = True
                 step_reward = -100
+            if self.reward < -30:
+                terminated = True
 
         if self.render_mode == "human":
             self.render()
-        action_info = {'angle_distances': angle_distances, 'car': self.car}
-        return self.state, step_reward, terminated, truncated, action_info
+        state = []
+        angle_distances = self.dist_scaler.transform(np.array(angle_distances).reshape(-1, 1))
+        state.extend(angle_distances.reshape(1, -1)[0])
+        speed = self.speed_scaler.transform(np.array([[self.get_speed(self.car)]]))
+        state.append(speed[0][0])
+        state.append(self.car.wheels[0].joint.angle)  # range -0.42 to -.42 on front wheels
+        return state, step_reward, terminated, truncated, None
 
     def calc_angle_distances(self, start_pos, forward_rad, road_segments):
         # get index of road segment that contains car
         road_segment_index = self.get_location_of_car(start_pos, road_segments)
-        angle_distances = {}
+        angle_distances = []
 
         if road_segment_index is None:
-            return angle_distances
+            return np.zeros((7, 1))
 
         # (angle, rad) tuples
-        angles = [(-105, 1.8326), (-90, 1.5708), (-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0),
-                  (5, -0.08727), (15, -0.2618), (45, -0.7854), (90, -1.5708), (105, 1.8326)]
+        # angles = [(-105, 1.8326), (-90, 1.5708), (-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0),
+        #           (5, -0.08727), (15, -0.2618), (45, -0.7854), (90, -1.5708), (105, 1.8326)]
+        angles = [(-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0), (5, -0.08727), (15, -0.2618), (45, -0.7854)]
 
         # for each angle, create line
         for angle, rad in angles:
             cur_line = self.get_line_from_car(start_pos, forward_rad + rad)
             distance = self.get_distance_to_grass(cur_line, road_segment_index, road_segments)
-            angle_distances[angle] = distance
+            angle_distances.append(distance)
 
         return angle_distances
 
@@ -668,7 +610,7 @@ class CarRacing(gym.Env, EzPickle):
                 total_distance += segment_dist
 
                 # backwards distance is limited to not incentivize driving backwards
-                if not going_forward and total_distance > 30:
+                if not going_forward and total_distance > MAX_BACKWARDS_DIST:
                     break
 
                 # get next segment dist
@@ -757,6 +699,13 @@ class CarRacing(gym.Env, EzPickle):
         if first.within_segment(x, y) and second.within_segment(x, y):
             return x, y
         return None
+
+    @staticmethod
+    def get_speed(car):
+        return np.sqrt(
+            np.square(car.hull.linearVelocity[0])
+            + np.square(car.hull.linearVelocity[1])
+        )
 
     def render(self):
         if self.render_mode is None:
@@ -894,10 +843,7 @@ class CarRacing(gym.Env, EzPickle):
             ]
 
         assert self.car is not None
-        true_speed = np.sqrt(
-            np.square(self.car.hull.linearVelocity[0])
-            + np.square(self.car.hull.linearVelocity[1])
-        )
+        true_speed = self.get_speed(self.car)
 
         # simple wrapper to render if the indicator value is above a threshold
         def render_if_min(value, points, color):
@@ -969,57 +915,3 @@ class CarRacing(gym.Env, EzPickle):
             pygame.display.quit()
             self.isopen = False
             pygame.quit()
-
-
-if __name__ == "__main__":
-    a = np.array([0.0, 0.0, 0.0])
-
-    def register_input():
-        global quit, restart
-        for event in pygame.event.get():
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_LEFT:
-                    a[0] = -1.0
-                if event.key == pygame.K_RIGHT:
-                    a[0] = +1.0
-                if event.key == pygame.K_UP:
-                    a[1] = +1.0
-                if event.key == pygame.K_DOWN:
-                    a[2] = +0.8  # set 1.0 for wheels to block to zero rotation
-                if event.key == pygame.K_RETURN:
-                    restart = True
-                if event.key == pygame.K_ESCAPE:
-                    quit = True
-
-            if event.type == pygame.KEYUP:
-                if event.key == pygame.K_LEFT:
-                    a[0] = 0
-                if event.key == pygame.K_RIGHT:
-                    a[0] = 0
-                if event.key == pygame.K_UP:
-                    a[1] = 0
-                if event.key == pygame.K_DOWN:
-                    a[2] = 0
-
-            if event.type == pygame.QUIT:
-                quit = True
-
-    env = CarRacing(render_mode="human")
-
-    quit = False
-    while not quit:
-        env.reset(seed=123)
-        total_reward = 0.0
-        steps = 0
-        restart = False
-        while True:
-            register_input()
-            s, r, terminated, truncated, info = env.step(a)
-            total_reward += r
-            if steps % 200 == 0 or terminated or truncated:
-                print("\naction " + str([f"{x:+0.2f}" for x in a]))
-                print(f"step {steps} total_reward {total_reward:+0.2f}")
-            steps += 1
-            if terminated or truncated or restart or quit:
-                break
-    env.close()
