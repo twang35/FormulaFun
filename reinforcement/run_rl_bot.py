@@ -11,9 +11,9 @@ from ppo_bot import train
 from ppo_bot import evaluate
 from car_racing import CarRacing
 
-
-INPUT_DIM = 9   # speed, 7 angles (45, 15, 5, 0), angle of wheel
-HIDDEN_DIM_1 = 128
+# speed, 7 angles (45, 15, 5, 0), angle of wheel, 6 ahead road segment angles (3, 5, 7, 10, 15, 20)
+INPUT_DIM = 15
+HIDDEN_DIM_1 = 128  # next: 256
 HIDDEN_DIM_2 = 64
 OUTPUT_DIM = 5  # no action, left, right, accel, brake
 
@@ -63,7 +63,8 @@ def run_rl_bot():
 
     for episode in range(1, MAX_EPISODES + 1):
 
-        policy_loss, value_loss, train_reward = train(train_env, track_seed, policy, optimizer, DISCOUNT_FACTOR,
+        policy_loss, value_loss, train_reward = train(train_env, track_seed,
+                                                      policy, optimizer, DISCOUNT_FACTOR,
                                                       PPO_STEPS, PPO_CLIP)
 
         if episode % TEST_EVERY == 0:
@@ -98,10 +99,10 @@ def plot_durations(test_rewards, train_rewards, show_result=False):
         plt.title('Result')
     else:
         plt.clf()
-        plt.title(f'Training...')
+        plt.title(f'Training... dim: {HIDDEN_DIM_1}x{HIDDEN_DIM_2}')
 
-    plt.xlabel('Episode', fontsize=20)
-    plt.ylabel('Reward', fontsize=20)
+    plt.xlabel(f'Episode ({len(train_rewards)})', fontsize=20)
+    plt.ylabel(f'Reward (max test: {max(test_rewards):5.1f})', fontsize=20)
     plt.plot(train_rewards, label='Train Reward')
     plt.plot(test_rewards, label='Test Reward')
     # plt.hlines(REWARD_THRESHOLD, 0, len(test_rewards), color='r')

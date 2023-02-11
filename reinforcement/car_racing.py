@@ -12,7 +12,6 @@ from car_dynamics import Car
 from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 
-
 try:
     import Box2D
     from Box2D.b2 import contactListener, fixtureDef, polygonShape
@@ -31,7 +30,6 @@ except ImportError as e:
         "pygame is not installed, run `pip install gymnasium[box2d]`"
     ) from e
 
-
 STATE_W = 96  # less than Atari 160x192
 STATE_H = 96
 VIDEO_W = 600
@@ -46,7 +44,6 @@ FPS = 50  # Frames per second
 ZOOM = 2.7  # Camera zoom
 ZOOM_FOLLOW = True  # Set to False for fixed view (don't use zoom)
 
-
 TRACK_DETAIL_STEP = 21 / SCALE
 TRACK_TURN_RATE = 0.31
 TRACK_WIDTH = 40 / SCALE
@@ -54,14 +51,12 @@ BORDER = 8 / SCALE
 BORDER_MIN_COUNT = 4
 GRASS_DIM = PLAYFIELD / 20.0
 MAX_SHAPE_DIM = (
-    max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
+        max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
 )
 
 MAX_BACKWARDS_DIST = 30
 MAX_FORWARDS_DIST = 200
 MAX_SCALAR_SPEED = 200
-CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD = 30
-# CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD = 3000000
 
 
 class FrictionDetector(contactListener):
@@ -69,6 +64,7 @@ class FrictionDetector(contactListener):
         contactListener.__init__(self)
         self.env = env
         self.lap_complete_percent = lap_complete_percent
+        self.first_contacts = 0
 
     def BeginContact(self, contact):
         self._contact(contact, True)
@@ -98,15 +94,15 @@ class FrictionDetector(contactListener):
             obj.tiles.add(tile)
             if not tile.road_visited:
                 tile.road_visited = True
-                self.env.reward += 1000.0 / len(self.env.track)
+                # Skip the first two times to start the game with 0 reward
+                if self.first_contacts >= 2:
+                    self.env.reward += 1000.0 / len(self.env.track)
+                else:
+                    self.first_contacts += 1
                 self.env.tile_visited_count += 1
 
                 # Lap is considered completed if enough % of the track was covered
-                if (
-                    tile.idx == 0
-                    and self.env.tile_visited_count / len(self.env.track)
-                    > self.lap_complete_percent
-                ):
+                if tile.idx == 0 and self.env.tile_visited_count / len(self.env.track) > self.lap_complete_percent:
                     self.env.new_lap = True
         else:
             obj.tiles.remove(tile)
@@ -145,12 +141,13 @@ class CarRacing(gym.Env, EzPickle):
     }
 
     def __init__(
-        self,
-        render_mode: Optional[str] = None,
-        verbose: bool = False,
-        lap_complete_percent: float = 0.95,
-        domain_randomize: bool = False,
-        continuous: bool = True,
+            self,
+            render_mode: Optional[str] = None,
+            verbose: bool = False,
+            lap_complete_percent: float = 0.95,
+            domain_randomize: bool = False,
+            continuous: bool = True,
+            consecutive_negative_terminate_threshold: int = 30,
     ):
         EzPickle.__init__(
             self,
@@ -164,6 +161,7 @@ class CarRacing(gym.Env, EzPickle):
         self.domain_randomize = domain_randomize
         self.lap_complete_percent = lap_complete_percent
         self._init_colors()
+        self.consecutive_negative_terminate_threshold = consecutive_negative_terminate_threshold
 
         self.contactListener_keepref = FrictionDetector(self, self.lap_complete_percent)
         self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
@@ -186,6 +184,8 @@ class CarRacing(gym.Env, EzPickle):
         self.dist_scaler.fit(np.array([0, MAX_FORWARDS_DIST]).reshape(-1, 1))
         self.speed_scaler = preprocessing.MinMaxScaler()
         self.speed_scaler.fit(np.array([0, MAX_SCALAR_SPEED]).reshape(-1, 1))
+        self.angle_scaler = preprocessing.MinMaxScaler()
+        self.angle_scaler.fit(np.array([-180, 180]).reshape(-1, 1))
         self.consecutive_negative_rewards = 0
 
         # This will throw a warning in tests/envs/test_envs in utils/env_checker.py as the space is not symmetric
@@ -334,9 +334,7 @@ class CarRacing(gym.Env, EzPickle):
             i -= 1
             if i == 0:
                 return False  # Failed
-            pass_through_start = (
-                track[i][0] > self.start_alpha and track[i - 1][0] <= self.start_alpha
-            )
+            pass_through_start = track[i][0] > self.start_alpha >= track[i - 1][0]
             if pass_through_start and i2 == -1:
                 i2 = i
             elif pass_through_start and i1 == -1:
@@ -347,7 +345,7 @@ class CarRacing(gym.Env, EzPickle):
         assert i1 != -1
         assert i2 != -1
 
-        track = track[i1 : i2 - 1]
+        track = track[i1: i2 - 1]
 
         first_beta = track[0][1]
         first_perp_x = math.cos(first_beta)
@@ -436,10 +434,10 @@ class CarRacing(gym.Env, EzPickle):
         return True
 
     def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict] = None,
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
     ):
         super().reset(seed=seed)
         self._destroy()
@@ -502,14 +500,16 @@ class CarRacing(gym.Env, EzPickle):
 
         # self.car.hull.angle is pointing to the right of the car. Add pi/2 to point straight.
         forward_car_angle = self.car.hull.angle + 1.5708
-        angle_distances = self.calc_angle_distances(self.car.hull.position, forward_car_angle, self.road_poly)
+        distance_to_grass = self.calc_distance_to_grass(self.car.hull.position, forward_car_angle, self.road_poly)
+        angles_ahead = self.calc_angles_ahead(self.car.hull.position, forward_car_angle, self.road_poly)
 
         step_reward = 0
         terminated = False
         truncated = False
         if action is not None:  # First step without action, called from reset()
             self.reward -= 0.1
-            if angle_distances[0] == 0 and angle_distances[3] == 0:
+            # if no distances, then minus reward for being on grass
+            if distance_to_grass[0] == 0 and distance_to_grass[3] == 0:
                 self.reward -= 0.4
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
@@ -518,7 +518,7 @@ class CarRacing(gym.Env, EzPickle):
                 self.consecutive_negative_rewards += 1
             else:
                 self.consecutive_negative_rewards = 0
-            if self.consecutive_negative_rewards > CONSECUTIVE_NEGATIVE_TERMINATE_THRESHOLD:
+            if self.consecutive_negative_rewards > self.consecutive_negative_terminate_threshold:
                 terminated = True
 
             if self.tile_visited_count == len(self.track) or self.new_lap:
@@ -530,23 +530,23 @@ class CarRacing(gym.Env, EzPickle):
             if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                 terminated = True
                 step_reward = -100
-            if self.reward < -30:
-                terminated = True
 
         if self.render_mode == "human":
             self.render()
         state = []
-        angle_distances = self.dist_scaler.transform(np.array(angle_distances).reshape(-1, 1))
-        state.extend(angle_distances.reshape(1, -1)[0])
+        distance_to_grass = self.dist_scaler.transform(np.array(distance_to_grass).reshape(-1, 1))
+        state.extend(distance_to_grass.reshape(1, -1)[0])
+        angles_ahead = self.angle_scaler.transform(np.array(angles_ahead).reshape(-1, 1))
+        state.extend(angles_ahead.reshape(1, -1)[0])
         speed = self.speed_scaler.transform(np.array([[self.get_speed(self.car)]]))
         state.append(speed[0][0])
         state.append(self.car.wheels[0].joint.angle)  # range -0.42 to -.42 on front wheels
         return state, step_reward, terminated, truncated, None
 
-    def calc_angle_distances(self, start_pos, forward_rad, road_segments):
+    def calc_distance_to_grass(self, start_pos, forward_rad, road_segments):
         # get index of road segment that contains car
         road_segment_index = self.get_location_of_car(start_pos, road_segments)
-        angle_distances = []
+        distances = []
 
         if road_segment_index is None:
             return np.zeros((7, 1))
@@ -554,15 +554,67 @@ class CarRacing(gym.Env, EzPickle):
         # (angle, rad) tuples
         # angles = [(-105, 1.8326), (-90, 1.5708), (-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0),
         #           (5, -0.08727), (15, -0.2618), (45, -0.7854), (90, -1.5708), (105, 1.8326)]
-        angles = [(-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0), (5, -0.08727), (15, -0.2618), (45, -0.7854)]
+        angles_to_calculate = \
+            [(-45, 0.7854), (-15, 0.2618), (-5, 0.08727), (0, 0), (5, -0.08727), (15, -0.2618), (45, -0.7854)]
 
         # for each angle, create line
-        for angle, rad in angles:
+        for angle, rad in angles_to_calculate:
             cur_line = self.get_line_from_car(start_pos, forward_rad + rad)
             distance = self.get_distance_to_grass(cur_line, road_segment_index, road_segments)
-            angle_distances.append(distance)
+            distances.append(distance)
 
-        return angle_distances
+        return distances
+
+    def calc_angles_ahead(self, start_pos, forward_rad, road_segments):
+        # get index of road segment that contains car
+        road_segment_index = self.get_location_of_car(start_pos, road_segments)
+        angles = []
+
+        if road_segment_index is None:
+            return np.zeros((6, 1))
+
+        segments_to_calculate = [3, 5, 7, 10, 15, 20]
+
+        line = self.get_line_from_car(start_pos, forward_rad)
+        for segments_ahead in segments_to_calculate:
+            segment = self.get_road_segment(road_segment_index, segments_ahead, road_segments)
+            x, y = self.get_midpoint(segment)
+            angles.append(self.get_angle([line.end_y, line.end_x], [line.start_y, line.start_x], [y, x]))
+
+        return angles
+
+    def get_road_segment(self, road_segment_index, segments_ahead, road_segments):
+        count = 1
+        i = 1
+        while count < segments_ahead:
+            # don't count curbs as road segments
+            if not self.is_curb(road_segments[(road_segment_index + i) % len(road_segments)]):
+                count += 1
+            i += 1
+
+        return road_segments[(road_segment_index + i) % len(road_segments)]
+
+    @staticmethod
+    def get_midpoint(segment):
+        x = 0
+        y = 0
+        for i in range(4):
+            x += segment[0][i][0]
+            y += segment[0][i][1]
+
+        return x/4, y/4
+
+    @staticmethod
+    def get_angle(a, b, c):
+        angle = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0])) % 360
+
+        # clip to +-180
+        if angle > 180:
+            angle -= 360
+        if angle < -180:
+            angle += 360
+
+        return angle
 
     def get_location_of_car(self, start_pos, road_segments):
         # enumerate road segments and find if start_pos lies within segment
@@ -577,7 +629,7 @@ class CarRacing(gym.Env, EzPickle):
         # find first intersection
         for i in range(len(road_segment[0])):
             start = road_segment[0][i]
-            end = road_segment[0][(i+1) % len(road_segment[0])]
+            end = road_segment[0][(i + 1) % len(road_segment[0])]
             line = self.get_line(start[0], start[1], end[0], end[1])
             intersection = self.get_intersection(line_segment, line)
             if intersection:
@@ -635,7 +687,7 @@ class CarRacing(gym.Env, EzPickle):
         # find first intersection
         for i in range(len(road_segment[0])):
             start = road_segment[0][i]
-            end = road_segment[0][(i+1) % len(road_segment[0])]
+            end = road_segment[0][(i + 1) % len(road_segment[0])]
             line = self.get_line(start[0], start[1], end[0], end[1])
             intersection = self.get_intersection(line_segment, line)
             if intersection:
@@ -648,7 +700,7 @@ class CarRacing(gym.Env, EzPickle):
 
     @staticmethod
     def get_distance(first_x, first_y, second_x, second_y):
-        return math.sqrt((first_x - second_x)**2 + (first_y - second_y)**2)
+        return math.sqrt((first_x - second_x) ** 2 + (first_y - second_y) ** 2)
 
     # magic from https://stackoverflow.com/questions/217578/how-can-i-determine-whether-a-2d-point-is-within-a-polygon
     @staticmethod
@@ -885,7 +937,7 @@ class CarRacing(gym.Env, EzPickle):
         )
 
     def _draw_colored_polygon(
-        self, surface, poly, color, zoom, translation, angle, clip=True
+            self, surface, poly, color, zoom, translation, angle, clip=True
     ):
         poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in poly]
         poly = [
@@ -897,9 +949,9 @@ class CarRacing(gym.Env, EzPickle):
         # is greater than the screen by MAX_SHAPE_DIM, which is the maximum
         # diagonal length of an environment object
         if not clip or any(
-            (-MAX_SHAPE_DIM <= coord[0] <= WINDOW_W + MAX_SHAPE_DIM)
-            and (-MAX_SHAPE_DIM <= coord[1] <= WINDOW_H + MAX_SHAPE_DIM)
-            for coord in poly
+                (-MAX_SHAPE_DIM <= coord[0] <= WINDOW_W + MAX_SHAPE_DIM)
+                and (-MAX_SHAPE_DIM <= coord[1] <= WINDOW_H + MAX_SHAPE_DIM)
+                for coord in poly
         ):
             gfxdraw.aapolygon(self.surf, poly, color)
             gfxdraw.filled_polygon(self.surf, poly, color)

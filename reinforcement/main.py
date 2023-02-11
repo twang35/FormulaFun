@@ -35,7 +35,7 @@ if __name__ == "__main__":
             if event.type == pygame.QUIT:
                 quit = True
 
-    env = car_racing.CarRacing(render_mode="human", continuous=True)
+    env = car_racing.CarRacing(render_mode="human", continuous=True, consecutive_negative_terminate_threshold=3000000)
 
     quit = False
     while not quit:
