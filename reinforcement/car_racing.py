@@ -147,7 +147,7 @@ class CarRacing(gym.Env, EzPickle):
             lap_complete_percent: float = 0.95,
             domain_randomize: bool = False,
             continuous: bool = True,
-            consecutive_negative_terminate_threshold: int = 30,
+            consecutive_negative_terminate_threshold: int = -5,
     ):
         EzPickle.__init__(
             self,
@@ -515,10 +515,10 @@ class CarRacing(gym.Env, EzPickle):
             self.prev_reward = self.reward
 
             if step_reward < 0:
-                self.consecutive_negative_rewards += 1
+                self.consecutive_negative_rewards += step_reward
             else:
                 self.consecutive_negative_rewards = 0
-            if self.consecutive_negative_rewards > self.consecutive_negative_terminate_threshold:
+            if self.consecutive_negative_rewards < self.consecutive_negative_terminate_threshold:
                 terminated = True
 
             if self.tile_visited_count == len(self.track) or self.new_lap:
