@@ -534,13 +534,17 @@ class CarRacing(gym.Env, EzPickle):
         if self.render_mode == "human":
             self.render()
         state = []
+        # distance to grass
         distance_to_grass = self.dist_scaler.transform(np.array(distance_to_grass).reshape(-1, 1))
         state.extend(distance_to_grass.reshape(1, -1)[0])
+        # road segment angles ahead
         angles_ahead = self.angle_scaler.transform(np.array(angles_ahead).reshape(-1, 1))
         state.extend(angles_ahead.reshape(1, -1)[0])
+        # speed
         speed = self.speed_scaler.transform(np.array([[self.get_speed(self.car)]]))
         state.append(speed[0][0])
-        state.append(self.car.wheels[0].joint.angle)  # range -0.42 to -.42 on front wheels
+        # wheel angle
+        state.append(self.car.wheels[0].joint.angle)  # range -0.42 to 0.42 on front wheels
         return state, step_reward, terminated, truncated, None
 
     def calc_distance_to_grass(self, start_pos, forward_rad, road_segments):

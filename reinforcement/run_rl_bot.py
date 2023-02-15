@@ -13,8 +13,8 @@ from car_racing import CarRacing
 
 # speed, 7 angles (45, 15, 5, 0), angle of wheel, 6 ahead road segment angles (3, 5, 7, 10, 15, 20)
 INPUT_DIM = 15
-HIDDEN_DIM_1 = 128  # next: 256
-HIDDEN_DIM_2 = 64
+HIDDEN_DIM_1 = 512  # next: 256
+HIDDEN_DIM_2 = 256
 OUTPUT_DIM = 5  # no action, left, right, accel, brake
 
 LEARNING_RATE = 0.01
@@ -50,8 +50,8 @@ def run_rl_bot():
     train_env.reset(seed=track_seed)
     test_env.reset(seed=track_seed)
 
-    actor = MLP(INPUT_DIM, HIDDEN_DIM_1, OUTPUT_DIM)
-    critic = MLP(INPUT_DIM, HIDDEN_DIM_1, 1)
+    actor = MLP(INPUT_DIM, HIDDEN_DIM_1, HIDDEN_DIM_2, OUTPUT_DIM)
+    critic = MLP(INPUT_DIM, HIDDEN_DIM_1, HIDDEN_DIM_2, 1)
 
     policy = ActorCritic(actor, critic)
 
@@ -94,7 +94,7 @@ def run_rl_bot():
 
 
 def plot_durations(test_rewards, train_rewards, show_result=False):
-    plt.figure(1, figsize=(10, 6))
+    plt.figure(1, figsize=(9, 6))
     if show_result:
         plt.title('Result')
     else:
