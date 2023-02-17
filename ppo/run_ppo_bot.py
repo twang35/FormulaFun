@@ -94,7 +94,7 @@ def run_rl_bot():
 
 
 def plot_durations(test_rewards, train_rewards, show_result=False):
-    plt.figure(1, figsize=(9, 6))
+    fig = plt.figure(1, figsize=(9, 6))
     if show_result:
         plt.title('Result')
     else:
@@ -108,7 +108,7 @@ def plot_durations(test_rewards, train_rewards, show_result=False):
     # plt.hlines(REWARD_THRESHOLD, 0, len(test_rewards), color='r')
     plt.legend(loc='upper left')
 
-    plt.pause(0.001)  # pause a bit so that plots are updated
+    fig.canvas.start_event_loop(0.001)  # this updates the plot and doesn't steal window focus
     if is_ipython:
         if not show_result:
             display.display(plt.gcf())

@@ -197,6 +197,6 @@ def evaluate(env, track_seed, policy):
 
         episode_reward += reward
 
-    print(f'eval actions: {actions}')
+    print(f'eval actions [{len(actions)}]: {actions}')
 
     return episode_reward
