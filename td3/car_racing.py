@@ -475,7 +475,7 @@ class CarRacing(gym.Env, EzPickle):
         if self.render_mode == "human":
             self.render()
         zero_step = self.step(None if self.continuous else 0)
-        return zero_step[0], None
+        return zero_step[0]
 
     def step(self, action: Union[np.ndarray, int]):
         assert self.car is not None
@@ -545,7 +545,7 @@ class CarRacing(gym.Env, EzPickle):
         state.append(speed[0][0])
         # wheel angle
         state.append(self.car.wheels[0].joint.angle)  # range -0.42 to 0.42 on front wheels
-        return state, step_reward, terminated, truncated, None
+        return state, step_reward, terminated, truncated
 
     def calc_distance_to_grass(self, start_pos, forward_rad, road_segments):
         # get index of road segment that contains car

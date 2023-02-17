@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+# device = torch.device("cpu")
 
 # Implementation of Twin Delayed Deep Deterministic Policy Gradients (TD3)
 # Paper: https://arxiv.org/abs/1802.09477
@@ -13,12 +13,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, max_action):
+    def __init__(self, state_dim, action_dim,
+                 hidden_dim_1, hidden_dim_2,
+                 max_action):
         super(Actor, self).__init__()
 
-        self.l1 = nn.Linear(state_dim, 256)
-        self.l2 = nn.Linear(256, 256)
-        self.l3 = nn.Linear(256, action_dim)
+        self.l1 = nn.Linear(state_dim, hidden_dim_1)
+        self.l2 = nn.Linear(hidden_dim_1, hidden_dim_2)
+        self.l3 = nn.Linear(hidden_dim_2, action_dim)
 
         self.max_action = max_action
 
@@ -29,18 +31,18 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, hidden_dim_1, hidden_dim_2,):
         super(Critic, self).__init__()
 
         # Q1 architecture
         self.l1 = nn.Linear(state_dim + action_dim, 256)
-        self.l2 = nn.Linear(256, 256)
-        self.l3 = nn.Linear(256, 1)
+        self.l2 = nn.Linear(256, hidden_dim_2)
+        self.l3 = nn.Linear(hidden_dim_2, 1)
 
         # Q2 architecture
-        self.l4 = nn.Linear(state_dim + action_dim, 256)
-        self.l5 = nn.Linear(256, 256)
-        self.l6 = nn.Linear(256, 1)
+        self.l4 = nn.Linear(state_dim + action_dim, hidden_dim_1)
+        self.l5 = nn.Linear(hidden_dim_1, hidden_dim_2)
+        self.l6 = nn.Linear(hidden_dim_2, 1)
 
     def forward(self, state, action):
         sa = torch.cat([state, action], 1)
@@ -68,21 +70,24 @@ class TD3(object):
             self,
             state_dim,
             action_dim,
-            max_action,
-            discount=0.99,
-            tau=0.005,
-            policy_noise=0.2,
-            noise_clip=0.5,
-            policy_freq=2
+            hidden_dim_1,
+            hidden_dim_2,
+            max_action,         # Max upper bound for action
+            discount=0.99,      # Discount factor for future rewards
+            tau=0.005,          # Target network update rate
+            policy_noise=0.2,   # Noise added to target policy during critic update
+            noise_clip=0.5,     # Range to clip target policy noise
+            policy_freq=2,      # Frequency of delayed policy updates
+            learning_rate=3e-4  # Learning rate for the actor and critic nets
     ):
 
-        self.actor = Actor(state_dim, action_dim, max_action).to(device)
+        self.actor = Actor(state_dim, action_dim, hidden_dim_1, hidden_dim_2, max_action).to(device)
         self.actor_target = copy.deepcopy(self.actor)
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=learning_rate)
 
-        self.critic = Critic(state_dim, action_dim).to(device)
+        self.critic = Critic(state_dim, action_dim, hidden_dim_1, hidden_dim_2, ).to(device)
         self.critic_target = copy.deepcopy(self.critic)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=learning_rate)
 
         self.max_action = max_action
         self.discount = discount

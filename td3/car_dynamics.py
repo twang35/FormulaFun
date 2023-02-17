@@ -155,7 +155,9 @@ class Car:
         """control: brake
 
         Args:
-            b (0..1): Degree to which the brakes are applied. More than 0.9 blocks the wheels to zero rotation"""
+            b (0..1): Degree to which the brakes are applied. More than 0.9 blocks the wheels to zero rotation
+            b also gets clipped between 0 and 1"""
+        b = np.clip(b, 0, 1)
         for w in self.wheels:
             w.brake = b
 
