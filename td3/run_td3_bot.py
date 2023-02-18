@@ -1,3 +1,4 @@
+import random
 import sys
 import time
 
@@ -17,7 +18,7 @@ ACTION_DIM = 3      # no action, left, right, accel, brake
 MAX_ACTION = 1      # max upper bound for action
 POLICY_NOISE = 0.2  # Noise added to target policy during critic update
 NOISE_CLIP = 0.5    # Range to clip target policy noise
-BATCH_SIZE = 256    # How many timesteps for each training session for the actor and critic
+BATCH_SIZE = 512    # How many timesteps for each training session for the actor and critic
 # BATCH_SIZE = 1024
 
 EXPLORE_NOISE = 0.1         # Std of Gaussian exploration noise
@@ -27,11 +28,18 @@ MAX_TRAIN_TIMESTEPS = 5_000_000_000
 EVAL_INTERVAL = 5000
 
 TRACK_SEED = 123
-# track_seed = random.randint(1, 100000)
-# track_seed = 12147  # first corner sharp high speed
+# TRACK_SEED = random.randint(1, 100000)
+# TRACK_SEED = 12147  # first corner sharp high speed
 
-LOAD_FILE = ''
-# LOAD_FILE = 'default_model'
+# EVAL_ONLY = False
+# LOAD_FILE = ''
+EVAL_ONLY = True
+LOAD_FILE = 'models/saved/term3_overfit'
+# LOAD_FILE = 'models/term3'
+
+if LOAD_FILE == 'models/saved/term3' or LOAD_FILE == 'models/term3':
+    HIDDEN_DIM_1 = 512
+    HIDDEN_DIM_2 = 256
 
 plt.ion()
 # set up matplotlib
@@ -42,7 +50,7 @@ if is_ipython:
 
 def run_td3_bot(argv):
     save_file_name = 'default_model'
-    if argv[0] == '-name':
+    if len(argv) == 2 and argv[0] == '-name':
         save_file_name = argv[1]
 
     start = time.time()
@@ -54,7 +62,7 @@ def run_td3_bot(argv):
                  hidden_dim_1=HIDDEN_DIM_1, hidden_dim_2=HIDDEN_DIM_2,
                  max_action=MAX_ACTION, policy_noise=POLICY_NOISE, noise_clip=NOISE_CLIP)
     if LOAD_FILE != '':
-        policy.load(f"./models/{LOAD_FILE}")
+        policy.load(f"./{LOAD_FILE}")
 
     print(f'track_seed: {TRACK_SEED}')
     state = train_env.reset(seed=TRACK_SEED)
@@ -70,6 +78,10 @@ def run_td3_bot(argv):
 
     eval_reward = eval_policy(policy, eval_env, TRACK_SEED)
     eval_rewards.append(eval_reward)
+    if EVAL_ONLY:
+        print(f'total reward: {eval_reward}')
+        eval_policy(policy, eval_env, TRACK_SEED)  # ANOTHER!!
+        return
 
     for t in range(1, MAX_TRAIN_TIMESTEPS + 1):
         episode_timesteps += 1
