@@ -1,3 +1,4 @@
+import sys
 import time
 
 import numpy as np
@@ -16,7 +17,8 @@ ACTION_DIM = 3      # no action, left, right, accel, brake
 MAX_ACTION = 1      # max upper bound for action
 POLICY_NOISE = 0.2  # Noise added to target policy during critic update
 NOISE_CLIP = 0.5    # Range to clip target policy noise
-BATCH_SIZE = 1024   # How many timesteps for each training session for the actor and critic
+BATCH_SIZE = 256    # How many timesteps for each training session for the actor and critic
+# BATCH_SIZE = 1024
 
 EXPLORE_NOISE = 0.1         # Std of Gaussian exploration noise
 RANDOM_POLICY_STEPS = 5000  # Time steps that initial random policy is used
@@ -24,24 +26,25 @@ RANDOM_POLICY_STEPS = 5000  # Time steps that initial random policy is used
 MAX_TRAIN_TIMESTEPS = 5_000_000_000
 EVAL_INTERVAL = 5000
 
-REWARD_THRESHOLD = 1100
-# REWARD_THRESHOLD = 908
-TEST_EVERY = 100
-N_TRIALS = 25
-PRINT_EVERY = 10
-
-plt.ion()
 TRACK_SEED = 123
 # track_seed = random.randint(1, 100000)
 # track_seed = 12147  # first corner sharp high speed
 
+LOAD_FILE = ''
+# LOAD_FILE = 'default_model'
+
+plt.ion()
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
     from IPython import display
 
 
-def run_td3_bot():
+def run_td3_bot(argv):
+    save_file_name = 'default_model'
+    if argv[0] == '-name':
+        save_file_name = argv[1]
+
     start = time.time()
     # rendering mode speed: human: 18.1s, rgb_array: 9.4, state_pixels: 7.8, none: 6.8
     train_env = CarRacing(render_mode="none", continuous=True)
@@ -50,11 +53,14 @@ def run_td3_bot():
     policy = TD3(state_dim=STATE_DIM, action_dim=ACTION_DIM,
                  hidden_dim_1=HIDDEN_DIM_1, hidden_dim_2=HIDDEN_DIM_2,
                  max_action=MAX_ACTION, policy_noise=POLICY_NOISE, noise_clip=NOISE_CLIP)
+    if LOAD_FILE != '':
+        policy.load(f"./models/{LOAD_FILE}")
 
     print(f'track_seed: {TRACK_SEED}')
     state = train_env.reset(seed=TRACK_SEED)
     train_rewards = []
     eval_rewards = []
+    max_eval_reward = 0
     max_train_reward = 0
     episode_reward = 0
     episode_timesteps = 0
@@ -115,6 +121,13 @@ def run_td3_bot():
             eval_reward = eval_policy(policy, eval_env, TRACK_SEED)
             train_rewards.append(episode_reward)
             eval_rewards.append(eval_reward)
+
+            if eval_reward > max_eval_reward:
+                max_eval_reward = eval_reward
+                if max_eval_reward > 900:
+                    policy.save(f"./models/{save_file_name}")
+                    print(f"saved model {save_file_name}")
+
             plot_durations(test_rewards=eval_rewards, train_rewards=train_rewards,
                            timestep=t, max_training_reward=max_train_reward)
 
@@ -172,4 +185,4 @@ def plot_durations(test_rewards, train_rewards, timestep, max_training_reward,
 
 
 if __name__ == "__main__":
-    run_td3_bot()
+    run_td3_bot(sys.argv[1:])
