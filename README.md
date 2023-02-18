@@ -29,7 +29,7 @@ Is a human coded racer better or is an AI controlled racer better?
 
 ## TD3 (Twin Delayed Deep Deterministic Policy Gradients) Model
 
-![td3 921 run](https://user-images.githubusercontent.com/5852883/219849089-9850165b-1d91-4f7d-a3e9-540c25d89be4.gif)
+![td3](https://user-images.githubusercontent.com/5852883/219849780-73fcbdaf-89e2-4372-8bf4-507c26b9c118.gif)
 
 #### Max reward: 921.0
 - Fairly quick learning
