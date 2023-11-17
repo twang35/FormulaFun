@@ -1,6 +1,8 @@
 # Formula Fun
 "Formula 1, more like Formula Fun!" - Amanda
 
+The race track and game engine come from [OpenAI CarRacing-v0](https://www.gymlibrary.dev/environments/box2d/car_racing/).
+
 ### Human vs Bots
 Is a human coded racer better or is an AI controlled racer better?
 
